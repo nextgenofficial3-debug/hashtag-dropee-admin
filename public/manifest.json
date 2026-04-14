@@ -1,0 +1,17 @@
+{
+  "name": "Dropee Admin",
+  "short_name": "Admin",
+  "description": "Hashtag Dropee Platform Admin Control Center",
+  "start_url": "/overview",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#6366f1",
+  "orientation": "landscape-primary",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
