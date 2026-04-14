@@ -11,6 +11,7 @@ import {
   Shield,
   ChevronRight,
   UserCog,
+  Bell,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -50,6 +51,12 @@ const navItems = [
     icon: AppWindow,
     label: "App Registry",
     description: "Platform applications",
+  },
+  {
+    to: "/notifications",
+    icon: Bell,
+    label: "Notifications",
+    description: "Broadcast FCM push alerts",
   },
 ];
 

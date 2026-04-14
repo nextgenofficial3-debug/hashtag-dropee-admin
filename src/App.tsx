@@ -12,6 +12,7 @@ const AgentsPage = lazy(() => import("@/pages/agents/AgentsPage"));
 const DataPage = lazy(() => import("@/pages/data/DataPage"));
 const AppsPage = lazy(() => import("@/pages/apps/AppsPage"));
 const AdminsPage = lazy(() => import("@/pages/admins/AdminsPage"));
+const NotificationsPage = lazy(() => import("@/pages/notifications/NotificationsPage"));
 
 const queryClient = new QueryClient();
 
@@ -86,6 +87,7 @@ const App = () => (
               <Route path="/admins" element={<AdminsPage />} />
               <Route path="/data" element={<DataPage />} />
               <Route path="/apps" element={<AppsPage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/overview" replace />} />
           </Routes>

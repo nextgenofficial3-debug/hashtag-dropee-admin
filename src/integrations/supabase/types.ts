@@ -343,6 +343,33 @@ export type Database = {
           },
         ]
       }
+      fcm_tokens: {
+        Row: {
+          app: string
+          created_at: string | null
+          id: string
+          token: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          app?: string
+          created_at?: string | null
+          id?: string
+          token: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          app?: string
+          created_at?: string | null
+          id?: string
+          token?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       mfc_categories: {
         Row: {
           created_at: string
