@@ -72,7 +72,14 @@ const App = () => (
       <AdminAuthProvider>
         <Suspense fallback={<Spinner />}>
           <Routes>
-            <Route path="/" element={<Navigate to="/overview" replace />} />
+            <Route 
+              path="/" 
+              element={
+                <AdminGuard>
+                  <Navigate to="/overview" replace />
+                </AdminGuard>
+              } 
+            />
             <Route
               path="/auth/login"
               element={<PublicRoute><LoginPage /></PublicRoute>}
@@ -89,7 +96,14 @@ const App = () => (
               <Route path="/apps" element={<AppsPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
             </Route>
-            <Route path="*" element={<Navigate to="/overview" replace />} />
+            <Route 
+              path="*" 
+              element={
+                <AdminGuard>
+                  <Navigate to="/overview" replace />
+                </AdminGuard>
+              } 
+            />
           </Routes>
         </Suspense>
       </AdminAuthProvider>
