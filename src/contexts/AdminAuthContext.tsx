@@ -42,16 +42,23 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleAuthChange = async (session: Session | null) => {
-      setSession(session);
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
+      try {
+        console.log("Auth state change detected:", !!session);
+        setSession(session);
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
 
-      if (currentUser) {
-        await checkAdminRole(currentUser.id, currentUser.email ?? "");
-      } else {
-        setIsAdmin(false);
+        if (currentUser) {
+          console.log("Checking admin role for:", currentUser.email);
+          await checkAdminRole(currentUser.id, currentUser.email ?? "");
+        } else {
+          setIsAdmin(false);
+        }
+      } catch (error) {
+        console.error("Error in handleAuthChange:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
