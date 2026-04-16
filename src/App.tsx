@@ -17,15 +17,46 @@ const NotificationsPage = lazy(() => import("@/pages/notifications/Notifications
 const queryClient = new QueryClient();
 
 const Spinner = () => (
-  <div className="min-h-screen bg-background flex items-center justify-center">
+  <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
     <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    <p className="text-muted-foreground text-sm animate-pulse">Syncing Administrator Session...</p>
   </div>
 );
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
-  const { user, isAdmin, loading } = useAdminAuth();
+  const { user, isAdmin, loading, authError, signOut } = useAdminAuth();
 
   if (loading) return <Spinner />;
+
+  if (authError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="text-center glass rounded-2xl border border-destructive/20 p-8 max-w-sm mx-4 space-y-6">
+          <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
+            <span className="text-destructive text-2xl">⚠️</span>
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold text-foreground">Sync Error</h2>
+            <p className="text-sm text-muted-foreground">{authError}</p>
+          </div>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:opacity-90 transition-opacity"
+            >
+              Retry Connection
+            </button>
+            <button
+              onClick={signOut}
+              className="w-full h-11 rounded-xl bg-secondary text-foreground text-sm font-semibold hover:opacity-90 transition-opacity"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) return <Navigate to="/auth/login" replace />;
 
