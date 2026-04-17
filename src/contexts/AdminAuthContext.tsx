@@ -47,46 +47,64 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    let isMounted = true;
+    let mounted = true;
 
-    // Safety timeout — 6 s max, clears as soon as INITIAL_SESSION fires
-    const authTimeout = setTimeout(() => {
-      if (isMounted && loading) {
-        console.error("Auth initialization timeout in Admin portal");
-        setAuthError("Session synchronization timed out. Please refresh.");
+    // Safety timeout — forces setLoading(false) after 5 s if INITIAL_SESSION never fires
+    const safetyTimer = setTimeout(() => {
+      if (mounted) {
+        console.warn("Admin: INITIAL_SESSION never fired — forcing loading=false");
+        setAuthError("Session check timed out. Please refresh.");
         setLoading(false);
       }
-    }, 6000);
+    }, 5000);
 
-    // ─── SINGLE SOURCE OF TRUTH ──────────────────────────────────────────────
-    // onAuthStateChange fires INITIAL_SESSION on page load, which fully
-    // replaces the old getSession() + onAuthStateChange dual-trigger pattern
-    // that caused race conditions and infinite loading states.
-    // ─────────────────────────────────────────────────────────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        if (!isMounted) return;
+        if (!mounted) return;
 
         console.log("Admin auth event:", event);
-        clearTimeout(authTimeout);
 
-        setSession(currentSession);
-        const currentUser = currentSession?.user ?? null;
-        setUser(currentUser);
+        if (event === "INITIAL_SESSION") {
+          // Clear the safety timer — we got a real response
+          clearTimeout(safetyTimer);
 
-        if (currentUser) {
-          await checkAdminRole(currentUser.id, currentUser.email ?? "");
-        } else {
-          setIsAdmin(false);
+          setSession(currentSession);
+          const currentUser = currentSession?.user ?? null;
+          setUser(currentUser);
+
+          if (currentUser) {
+            await checkAdminRole(currentUser.id, currentUser.email ?? "");
+          } else {
+            setIsAdmin(false);
+          }
+
+          // setLoading(false) ONLY here — on INITIAL_SESSION
+          if (mounted) setLoading(false);
+
+        } else if (event === "SIGNED_IN") {
+          setSession(currentSession);
+          const currentUser = currentSession?.user ?? null;
+          setUser(currentUser);
+          if (currentUser && mounted) {
+            await checkAdminRole(currentUser.id, currentUser.email ?? "");
+          }
+
+        } else if (event === "SIGNED_OUT") {
+          if (mounted) {
+            setSession(null);
+            setUser(null);
+            setIsAdmin(false);
+          }
+
+        } else if (event === "TOKEN_REFRESHED") {
+          if (mounted) setSession(currentSession);
         }
-
-        if (isMounted) setLoading(false);
       }
     );
 
     return () => {
-      isMounted = false;
-      clearTimeout(authTimeout);
+      mounted = false;
+      clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
   }, []);
