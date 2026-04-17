@@ -49,15 +49,6 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Safety timeout — forces setLoading(false) after 5 s if INITIAL_SESSION never fires
-    const safetyTimer = setTimeout(() => {
-      if (mounted) {
-        console.warn("Admin: INITIAL_SESSION never fired — forcing loading=false");
-        setAuthError("Session check timed out. Please refresh.");
-        setLoading(false);
-      }
-    }, 5000);
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         if (!mounted) return;
@@ -65,20 +56,14 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         console.log("Admin auth event:", event);
 
         if (event === "INITIAL_SESSION") {
-          // Clear the safety timer — we got a real response
-          clearTimeout(safetyTimer);
-
           setSession(currentSession);
           const currentUser = currentSession?.user ?? null;
           setUser(currentUser);
-
           if (currentUser) {
             await checkAdminRole(currentUser.id, currentUser.email ?? "");
           } else {
             setIsAdmin(false);
           }
-
-          // setLoading(false) ONLY here — on INITIAL_SESSION
           if (mounted) setLoading(false);
 
         } else if (event === "SIGNED_IN") {
@@ -88,12 +73,17 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
           if (currentUser && mounted) {
             await checkAdminRole(currentUser.id, currentUser.email ?? "");
           }
+          if (mounted) setLoading(false);
+          if ("caches" in window) {
+            caches.keys().then((keys) => keys.forEach((key) => caches.delete(key)));
+          }
 
         } else if (event === "SIGNED_OUT") {
           if (mounted) {
             setSession(null);
             setUser(null);
             setIsAdmin(false);
+            setLoading(false);
           }
 
         } else if (event === "TOKEN_REFRESHED") {
@@ -102,9 +92,14 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
+    // Force unblock if INITIAL_SESSION never fires (mobile bug)
+    const timeout = setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 5000);
+
     return () => {
       mounted = false;
-      clearTimeout(safetyTimer);
+      clearTimeout(timeout);
       subscription.unsubscribe();
     };
   }, []);

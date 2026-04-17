@@ -18,6 +18,8 @@ const BookingsPage = lazy(() => import("@/pages/bookings/BookingsPage"));
 const PickDropPage = lazy(() => import("@/pages/pickdrop/PickDropPage"));
 const AnalyticsPage = lazy(() => import("@/pages/analytics/AnalyticsPage"));
 const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage"));
+const PoliciesPage = lazy(() => import("@/pages/policies/PoliciesPage"));
+const ScheduledHoursPage = lazy(() => import("@/pages/hours/ScheduledHoursPage"));
 
 const queryClient = new QueryClient();
 
@@ -136,6 +138,8 @@ const App = () => (
               <Route path="/pick-and-drop" element={<PickDropPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/policies" element={<PoliciesPage />} />
+              <Route path="/hours" element={<ScheduledHoursPage />} />
             </Route>
             <Route 
               path="*" 
