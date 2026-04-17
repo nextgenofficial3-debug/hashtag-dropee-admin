@@ -12,6 +12,11 @@ import {
   ChevronRight,
   UserCog,
   Bell,
+  UserRound,
+  CalendarDays,
+  Truck,
+  BarChart2,
+  Settings,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -33,6 +38,24 @@ const navItems = [
     icon: Users,
     label: "Agents",
     description: "Delivery agent management",
+  },
+  {
+    to: "/customers",
+    icon: UserRound,
+    label: "Customers",
+    description: "Customer accounts & history",
+  },
+  {
+    to: "/bookings",
+    icon: CalendarDays,
+    label: "Bookings",
+    description: "Service booking management",
+  },
+  {
+    to: "/pick-and-drop",
+    icon: Truck,
+    label: "Pick & Drop",
+    description: "P&D order management",
   },
   {
     to: "/admins",
@@ -57,6 +80,18 @@ const navItems = [
     icon: Bell,
     label: "Notifications",
     description: "Broadcast FCM push alerts",
+  },
+  {
+    to: "/analytics",
+    icon: BarChart2,
+    label: "Analytics",
+    description: "Revenue & performance charts",
+  },
+  {
+    to: "/settings",
+    icon: Settings,
+    label: "Settings",
+    description: "Pricing, areas, admin users",
   },
 ];
 

@@ -13,6 +13,11 @@ const DataPage = lazy(() => import("@/pages/data/DataPage"));
 const AppsPage = lazy(() => import("@/pages/apps/AppsPage"));
 const AdminsPage = lazy(() => import("@/pages/admins/AdminsPage"));
 const NotificationsPage = lazy(() => import("@/pages/notifications/NotificationsPage"));
+const CustomersPage = lazy(() => import("@/pages/customers/CustomersPage"));
+const BookingsPage = lazy(() => import("@/pages/bookings/BookingsPage"));
+const PickDropPage = lazy(() => import("@/pages/pickdrop/PickDropPage"));
+const AnalyticsPage = lazy(() => import("@/pages/analytics/AnalyticsPage"));
+const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage"));
 
 const queryClient = new QueryClient();
 
@@ -126,6 +131,11 @@ const App = () => (
               <Route path="/data" element={<DataPage />} />
               <Route path="/apps" element={<AppsPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/customers" element={<CustomersPage />} />
+              <Route path="/bookings" element={<BookingsPage />} />
+              <Route path="/pick-and-drop" element={<PickDropPage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
             <Route 
               path="*" 

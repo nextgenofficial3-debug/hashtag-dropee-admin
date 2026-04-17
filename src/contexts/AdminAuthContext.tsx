@@ -39,9 +39,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         .eq("role", "admin")
         .maybeSingle();
       
-      if (error) {
-        console.error("Error checking Admin role:", error);
-      }
+      if (error) console.error("Error checking Admin role:", error);
       setIsAdmin(!!data);
     } catch (err) {
       console.error("Exception in checkAdminRole Admin:", err);
@@ -50,70 +48,51 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
-    let authTimeout: NodeJS.Timeout;
 
-    const handleAuthChange = async (currentSession: Session | null) => {
-      try {
-        console.log("Auth state change detected in Admin:", !!currentSession);
-        
-        if (authTimeout) clearTimeout(authTimeout);
+    // Safety timeout — 6 s max, clears as soon as INITIAL_SESSION fires
+    const authTimeout = setTimeout(() => {
+      if (isMounted && loading) {
+        console.error("Auth initialization timeout in Admin portal");
+        setAuthError("Session synchronization timed out. Please refresh.");
+        setLoading(false);
+      }
+    }, 6000);
+
+    // ─── SINGLE SOURCE OF TRUTH ──────────────────────────────────────────────
+    // onAuthStateChange fires INITIAL_SESSION on page load, which fully
+    // replaces the old getSession() + onAuthStateChange dual-trigger pattern
+    // that caused race conditions and infinite loading states.
+    // ─────────────────────────────────────────────────────────────────────────
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, currentSession) => {
         if (!isMounted) return;
+
+        console.log("Admin auth event:", event);
+        clearTimeout(authTimeout);
 
         setSession(currentSession);
         const currentUser = currentSession?.user ?? null;
         setUser(currentUser);
 
         if (currentUser) {
-          console.log("Checking admin role for:", currentUser.email);
           await checkAdminRole(currentUser.id, currentUser.email ?? "");
         } else {
           setIsAdmin(false);
-          setLoading(false);
         }
-      } catch (error) {
-        console.error("Error in handleAuthChange Admin:", error);
-        if (isMounted) {
-          setAuthError("Failed to initialize admin session. Please try again.");
-          setLoading(false);
-        }
-      } finally {
+
         if (isMounted) setLoading(false);
-      }
-    };
-
-    // Safety timeout
-    authTimeout = setTimeout(() => {
-      if (isMounted && loading) {
-        console.error("Auth initialization timeout in Admin portal");
-        setAuthError("Session synchronization timed out.");
-        setLoading(false);
-      }
-    }, 8000);
-
-    // Initial check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (isMounted) handleAuthChange(session);
-    }).catch(err => {
-      console.error("Initial session fetch error Admin:", err);
-      if (isMounted) setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (isMounted) await handleAuthChange(session);
       }
     );
 
     return () => {
       isMounted = false;
-      if (authTimeout) clearTimeout(authTimeout);
+      clearTimeout(authTimeout);
       subscription.unsubscribe();
     };
   }, []);
 
   const signInWithGoogle = async () => {
     try {
-      setLoading(true);
       setAuthError(null);
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -129,7 +108,6 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     } catch (err: any) {
       console.error("Google sign-in error Admin:", err);
       setAuthError(err.message || "Failed to start Google sign-in");
-      setLoading(false);
     }
   };
 
