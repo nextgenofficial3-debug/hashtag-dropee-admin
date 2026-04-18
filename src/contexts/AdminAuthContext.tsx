@@ -53,53 +53,41 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       async (event, currentSession) => {
         if (!mounted) return;
 
-        console.log("Admin auth event:", event);
-
-        if (event === "INITIAL_SESSION") {
+        if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
           setSession(currentSession);
           const currentUser = currentSession?.user ?? null;
           setUser(currentUser);
+
           if (currentUser) {
             await checkAdminRole(currentUser.id, currentUser.email ?? "");
           } else {
             setIsAdmin(false);
           }
-          if (mounted) setLoading(false);
 
-        } else if (event === "SIGNED_IN") {
+          // Clear stale cache on sign in
+          if (event === 'SIGNED_IN' && 'caches' in window) {
+            caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+          }
+          if (mounted) setLoading(false);
+        } else if (event === 'SIGNED_OUT') {
+          setSession(null);
+          setUser(null);
+          setIsAdmin(false);
+          setLoading(false);
+        } else if (event === 'TOKEN_REFRESHED') {
           setSession(currentSession);
-          const currentUser = currentSession?.user ?? null;
-          setUser(currentUser);
-          if (currentUser && mounted) {
-            await checkAdminRole(currentUser.id, currentUser.email ?? "");
-          }
-          if (mounted) setLoading(false);
-          if ("caches" in window) {
-            caches.keys().then((keys) => keys.forEach((key) => caches.delete(key)));
-          }
-
-        } else if (event === "SIGNED_OUT") {
-          if (mounted) {
-            setSession(null);
-            setUser(null);
-            setIsAdmin(false);
-            setLoading(false);
-          }
-
-        } else if (event === "TOKEN_REFRESHED") {
-          if (mounted) setSession(currentSession);
         }
       }
     );
 
-    // Force unblock if INITIAL_SESSION never fires (mobile bug)
-    const timeout = setTimeout(() => {
+    // Hard fallback — never spin forever
+    const fallback = setTimeout(() => {
       if (mounted) setLoading(false);
-    }, 5000);
+    }, 8000);
 
     return () => {
       mounted = false;
-      clearTimeout(timeout);
+      clearTimeout(fallback);
       subscription.unsubscribe();
     };
   }, []);
@@ -125,10 +113,15 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setIsAdmin(false);
-    setSession(null);
-    setUser(null);
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      await supabase.auth.signOut();
+    } finally {
+      window.location.href = '/login'; // hard redirect always
+    }
   };
 
   return (

@@ -126,10 +126,11 @@ export function useAllOrders() {
     };
   }, []);
 
-  const updateDeliveryStatus = async (orderId: string, newStatus: string) => {
+  const updateOrderStatus = async (orderId: string, newStatus: string, isDelivery: boolean) => {
+    const table = isDelivery ? "delivery_orders" : "orders";
     const { error } = await supabase
-      .from("delivery_orders")
-      .update({ status: newStatus as "pending_assignment" | "accepted" | "delivered" | "cancelled", updated_at: new Date().toISOString() })
+      .from(table)
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
       .eq("id", orderId);
     if (!error) await fetchOrders();
     return { success: !error, error: error?.message };
@@ -146,6 +147,6 @@ export function useAllOrders() {
     mfcOrders,
     loading,
     refetch: fetchOrders,
-    updateDeliveryStatus,
+    updateOrderStatus,
   };
 }

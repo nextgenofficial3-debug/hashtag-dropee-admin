@@ -26,7 +26,7 @@ const ORDER_STATUSES = [
 const SOURCE_OPTIONS = ["all", "delivery", "mfc"];
 
 export default function OrdersPage() {
-  const { allOrders, deliveryOrders, mfcOrders, loading, refetch, updateDeliveryStatus } = useAllOrders();
+  const { allOrders, deliveryOrders, mfcOrders, loading, refetch, updateOrderStatus } = useAllOrders();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -46,9 +46,9 @@ export default function OrdersPage() {
     return matchSearch && matchStatus && matchSource;
   });
 
-  const handleStatusUpdate = async (orderId: string, newStatus: string) => {
+  const handleStatusUpdate = async (orderId: string, newStatus: string, isDelivery: boolean) => {
     setUpdating(orderId);
-    const { success } = await updateDeliveryStatus(orderId, newStatus);
+    const { success } = await updateOrderStatus(orderId, newStatus, isDelivery);
     if (success) {
       toast({ title: "Status updated", description: `Order set to ${newStatus.replace(/_/g, " ")}` });
     } else {
@@ -211,26 +211,28 @@ export default function OrdersPage() {
                         )}
                       </div>
 
-                      {/* Admin actions for delivery orders */}
-                      {isDelivery && !["delivered", "cancelled"].includes(order.status) && (
-                        <div className="flex gap-2 pt-2">
-                          <p className="text-xs text-muted-foreground self-center mr-2">Force status:</p>
-                          {["delivered", "cancelled"].map((s) => (
+                      {/* Admin actions for changing status */}
+                      <div className="flex flex-col gap-2 pt-2">
+                        <p className="text-xs font-semibold text-foreground">Update Status:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {ORDER_STATUSES.filter(s => s !== 'all').map((s) => (
                             <button
                               key={s}
-                              onClick={() => handleStatusUpdate(order.id, s)}
-                              disabled={updating === order.id}
+                              onClick={() => handleStatusUpdate(order.id, s, isDelivery)}
+                              disabled={updating === order.id || order.status === s}
                               className={cn(
-                                "px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                                s === "delivered" ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25" : "bg-destructive/15 text-destructive hover:bg-destructive/25",
+                                "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                                order.status === s 
+                                  ? "bg-primary/20 text-primary border-primary/30" 
+                                  : "bg-secondary text-muted-foreground hover:text-foreground border-border",
                                 "disabled:opacity-50"
                               )}
                             >
-                              {updating === order.id ? "..." : s}
+                              {updating === order.id && order.status !== s ? "..." : s.replace(/_/g, " ")}
                             </button>
                           ))}
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                 </div>
