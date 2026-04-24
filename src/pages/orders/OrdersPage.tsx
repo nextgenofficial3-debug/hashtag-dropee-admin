@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useAllOrders, type AdminDeliveryOrder } from "@/hooks/useAllOrders";
+import { useAllAgents } from "@/hooks/useAllAgents";
 import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import {
   Package, Truck, Store, Search, Filter, MapPin,
-  User, Clock, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp,
+  User, Clock, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, UserCheck, Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/useToast";
 
@@ -27,11 +28,13 @@ const SOURCE_OPTIONS = ["all", "delivery", "mfc"];
 
 export default function OrdersPage() {
   const { allOrders, deliveryOrders, mfcOrders, loading, refetch, updateOrderStatus } = useAllOrders();
+  const { agents, assignOrderToAgent } = useAllAgents();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState<string | null>(null);
   const { toast } = useToast();
 
   const filtered = allOrders.filter((o) => {
@@ -55,6 +58,20 @@ export default function OrdersPage() {
       toast({ title: "Update failed", variant: "destructive" });
     }
     setUpdating(null);
+  };
+
+  const handleAssignAgent = async (orderId: string, agentId: string) => {
+    const agent = agents.find(a => a.id === agentId);
+    if (!agent) return;
+    setAssigning(orderId);
+    const ok = await assignOrderToAgent(orderId, agentId, agent.user_id);
+    if (ok) {
+      toast({ title: "Agent assigned!", description: `${agent.full_name} assigned to order` });
+      await refetch();
+    } else {
+      toast({ title: "Assignment failed", variant: "destructive" });
+    }
+    setAssigning(null);
   };
 
   const stats = {
@@ -210,6 +227,28 @@ export default function OrdersPage() {
                           </>
                         )}
                       </div>
+
+                      {/* Assign agent (delivery orders only) */}
+                      {isDelivery && !(order as AdminDeliveryOrder).agent_name && agents.length > 0 && (
+                        <div className="flex items-center gap-2 pt-2">
+                          <UserCheck className="w-4 h-4 text-primary shrink-0" />
+                          <p className="text-xs font-semibold text-foreground">Assign Agent:</p>
+                          <select
+                            defaultValue=""
+                            onChange={(e) => e.target.value && handleAssignAgent(order.id, e.target.value)}
+                            disabled={assigning === order.id}
+                            className="flex-1 px-3 py-1.5 rounded-lg bg-secondary border border-border text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                          >
+                            <option value="">Select agent...</option>
+                            {agents.filter(a => a.availability_status === "online" || a.availability_status === "busy").map(a => (
+                              <option key={a.id} value={a.id}>
+                                {a.full_name} ({a.availability_status})
+                              </option>
+                            ))}
+                          </select>
+                          {assigning === order.id && <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />}
+                        </div>
+                      )}
 
                       {/* Admin actions for changing status */}
                       <div className="flex flex-col gap-2 pt-2">

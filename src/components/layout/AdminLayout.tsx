@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
@@ -36,21 +36,55 @@ function FCMPromptBanner() {
 
 export default function AdminLayout() {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // On desktop, start uncollapsed; on mobile (<768px), start collapsed
+  useEffect(() => {
+    const checkMobile = () => {
+      if (window.innerWidth < 768) setCollapsed(true);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  const handleToggle = useCallback(() => {
+    if (window.innerWidth < 768) {
+      setMobileOpen(v => !v);
+    } else {
+      setCollapsed(v => !v);
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar collapsed={collapsed} />
+      {/* Mobile overlay backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <Sidebar
+        collapsed={collapsed}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
       <TopBar
-        onToggleSidebar={() => setCollapsed((c) => !c)}
+        onToggleSidebar={handleToggle}
         sidebarCollapsed={collapsed}
       />
       <main
         className={cn(
           "pt-16 min-h-screen transition-all duration-300",
-          collapsed ? "pl-16" : "pl-64"
+          // On mobile: no left padding (sidebar is overlay)
+          "pl-0 md:pl-16",
+          // On desktop: respect collapsed state
+          !collapsed && "md:pl-64"
         )}
       >
-        <div className="p-6 max-w-[1600px] mx-auto">
+        <div className="p-4 md:p-6 max-w-[1600px] mx-auto">
           <Outlet />
         </div>
       </main>

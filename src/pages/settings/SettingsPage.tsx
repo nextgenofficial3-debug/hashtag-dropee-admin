@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useToast } from "@/hooks/useToast";
-import { Settings, MapPin, DollarSign, Shield, Plus, Trash2, Save, RefreshCw } from "lucide-react";
+import { Settings, MapPin, DollarSign, Shield, Plus, Trash2, Save, RefreshCw, MessageCircle, Store } from "lucide-react";
 
 interface ServiceArea {
   id?: string;
@@ -16,6 +16,8 @@ interface PricingConfig {
   per_km_fee: number;
   min_order: number;
   platform_fee_pct: number;
+  agent_daily_fee: number;
+  agent_per_delivery_fee: number;
 }
 
 export default function SettingsPage() {
@@ -33,8 +35,15 @@ export default function SettingsPage() {
     per_km_fee: 8,
     min_order: 50,
     platform_fee_pct: 10,
+    agent_daily_fee: 50,
+    agent_per_delivery_fee: 15,
   });
   const [savingPricing, setSavingPricing] = useState(false);
+
+  // Cafe Contact & Location
+  const [whatsappNumber, setWhatsappNumber] = useState("");
+  const [cafeAddress, setCafeAddress] = useState("");
+  const [cafeMapUrl, setCafeMapUrl] = useState("");
 
   // Admin users
   const [admins, setAdmins] = useState<{ id: string; email: string; name: string | null; created_at: string }[]>([]);
@@ -52,6 +61,9 @@ export default function SettingsPage() {
     if (data) {
       if (data.service_areas) setAreas(data.service_areas);
       if (data.pricing) setPricing(data.pricing);
+      if (data.whatsapp_number) setWhatsappNumber(data.whatsapp_number);
+      if (data.cafe_address) setCafeAddress(data.cafe_address);
+      if (data.cafe_map_url) setCafeMapUrl(data.cafe_map_url);
     } else {
       // Default example areas
       setAreas([
@@ -74,6 +86,9 @@ export default function SettingsPage() {
         id: "main",
         service_areas: areas,
         pricing,
+        whatsapp_number: whatsappNumber,
+        cafe_address: cafeAddress,
+        cafe_map_url: cafeMapUrl,
         updated_at: new Date().toISOString(),
       }, { onConflict: "id" });
       toast({ title: "Settings saved successfully" });
@@ -128,21 +143,22 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Pricing Config */}
+      {/* Delivery Pricing Config */}
       <div className="glass rounded-2xl border border-border p-5 space-y-4">
         <div className="flex items-center gap-2 mb-2">
           <DollarSign className="w-4 h-4 text-emerald-400" />
-          <p className="text-sm font-semibold text-foreground">Delivery Pricing</p>
+          <p className="text-sm font-semibold text-foreground">Delivery Pricing (Customer Fees)</p>
+          <p className="text-xs text-muted-foreground ml-auto">What customers pay</p>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          {(Object.entries(pricing) as [keyof PricingConfig, number][]).map(([key, val]) => (
+          {(["base_fee", "per_km_fee", "min_order", "platform_fee_pct"] as const).map((key) => (
             <div key={key}>
               <label className="text-xs text-muted-foreground capitalize block mb-1.5">
-                {key.replace(/_/g, " ")} {key.includes("pct") ? "(%)" : "(₹)"}
+                {key.replace(/_/g, " ")} {key.includes("pct") ? "(%)" : "(₵)"}
               </label>
               <input
                 type="number"
-                value={val}
+                value={pricing[key]}
                 onChange={(e) => setPricing((p) => ({ ...p, [key]: Number(e.target.value) }))}
                 className="w-full px-3 py-2.5 rounded-xl bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
@@ -156,6 +172,99 @@ export default function SettingsPage() {
         >
           {savingPricing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Save Pricing
+        </button>
+      </div>
+
+      {/* Agent Earnings Config */}
+      <div className="glass rounded-2xl border border-border p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <DollarSign className="w-4 h-4 text-yellow-400" />
+          <p className="text-sm font-semibold text-foreground">Agent Earnings</p>
+          <p className="text-xs text-muted-foreground ml-auto">What agents earn</p>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Daily Flat Fee (₵/day)</label>
+            <input
+              type="number"
+              value={pricing.agent_daily_fee}
+              onChange={(e) => setPricing((p) => ({ ...p, agent_daily_fee: Number(e.target.value) }))}
+              className="w-full px-3 py-2.5 rounded-xl bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Flat daily earning for active agents</p>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Per Delivery Fee (₵/delivery)</label>
+            <input
+              type="number"
+              value={pricing.agent_per_delivery_fee}
+              onChange={(e) => setPricing((p) => ({ ...p, agent_per_delivery_fee: Number(e.target.value) }))}
+              className="w-full px-3 py-2.5 rounded-xl bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Paid to agent per completed delivery</p>
+          </div>
+        </div>
+        <button
+          onClick={saveSettings}
+          disabled={savingPricing}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-yellow-400 text-black text-sm font-semibold hover:bg-yellow-300 transition-all disabled:opacity-50"
+        >
+          {savingPricing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save Agent Fees
+        </button>
+      </div>
+
+      {/* Cafe Contact & Location */}
+      <div className="glass rounded-2xl border border-border p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Store className="w-4 h-4 text-orange-400" />
+          <p className="text-sm font-semibold text-foreground">Cafe Contact & Location</p>
+        </div>
+        <div className="grid grid-cols-1 gap-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1.5">
+              <MessageCircle className="w-3.5 h-3.5" /> WhatsApp Number (with country code)
+            </label>
+            <input
+              type="text"
+              value={whatsappNumber}
+              onChange={(e) => setWhatsappNumber(e.target.value)}
+              placeholder="e.g. +919876543210"
+              className="w-full px-3 py-2.5 rounded-xl bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1.5">
+              Cafe Full Address
+            </label>
+            <input
+              type="text"
+              value={cafeAddress}
+              onChange={(e) => setCafeAddress(e.target.value)}
+              placeholder="e.g. 123 Cafe Street, City"
+              className="w-full px-3 py-2.5 rounded-xl bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1.5">
+              Google Maps URL
+            </label>
+            <input
+              type="text"
+              value={cafeMapUrl}
+              onChange={(e) => setCafeMapUrl(e.target.value)}
+              placeholder="e.g. https://maps.app.goo.gl/..."
+              className="w-full px-3 py-2.5 rounded-xl bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+        </div>
+        <button
+          onClick={saveSettings}
+          disabled={savingPricing}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-50"
+        >
+          {savingPricing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save Contact Info
         </button>
       </div>
 

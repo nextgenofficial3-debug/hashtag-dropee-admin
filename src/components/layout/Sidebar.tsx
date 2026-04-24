@@ -97,9 +97,11 @@ const navItems = [
 
 interface SidebarProps {
   collapsed?: boolean;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export default function Sidebar({ collapsed = false }: SidebarProps) {
+export default function Sidebar({ collapsed = false, mobileOpen = false, onMobileClose }: SidebarProps) {
   const { user, isSuperAdmin, signOut } = useAdminAuth();
   const navigate = useNavigate();
 
@@ -115,7 +117,11 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     <aside
       className={cn(
         "fixed left-0 top-0 h-screen glass-strong border-r border-border z-50 flex flex-col transition-all duration-300",
-        collapsed ? "w-16" : "w-64"
+        // Desktop: collapse/expand
+        collapsed ? "w-16" : "w-64",
+        // Mobile: hide by default, show when mobileOpen
+        "translate-x-0 md:translate-x-0",
+        !mobileOpen && "-translate-x-full md:translate-x-0"
       )}
     >
       {/* Logo */}

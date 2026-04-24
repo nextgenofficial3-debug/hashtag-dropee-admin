@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { Button } from './ui/button';
+
 import { Upload, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 

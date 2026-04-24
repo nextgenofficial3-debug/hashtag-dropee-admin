@@ -1,408 +1,518 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
-import { useAllAgents } from "@/hooks/useAllAgents";
-import { cn, formatCurrency, formatRelativeTime, getInitials, formatDate } from "@/lib/utils";
-import { Search, RefreshCw, Shield, ShieldCheck, Bike, Car, PersonStanding, Star, TrendingUp, ChevronDown, ChevronUp, UserPlus, Mail, Trash2 } from "lucide-react";
+import { useState, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  UserPlus, CheckCircle, XCircle, Truck, Clock, Wifi, WifiOff,
+  ChevronDown, ChevronUp, Gift, Package, Phone, Mail, Car,
+  Shield, ShieldOff, Send, ClipboardList, Loader2
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useAllAgents, AdminAgent, UnassignedDeliveryOrder } from "@/hooks/useAllAgents";
 import { useToast } from "@/hooks/useToast";
-import { supabase } from "@/integrations/supabase/client";
-import { useAdminAuth } from "@/contexts/AdminAuthContext";
 
+// ── helpers ──────────────────────────────────────────────────────────────────
+function genAgentCode() {
+  return "AG-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+const statusColors: Record<string, string> = {
+  online:  "text-emerald-400 bg-emerald-400/15",
+  offline: "text-zinc-400   bg-zinc-400/15",
+  busy:    "text-amber-400  bg-amber-400/15",
+  unknown: "text-zinc-500   bg-zinc-500/10",
+};
+const statusDot: Record<string, string> = {
+  online:  "bg-emerald-400 animate-pulse",
+  offline: "bg-zinc-500",
+  busy:    "bg-amber-400 animate-pulse",
+  unknown: "bg-zinc-600",
+};
+
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function AgentsPage() {
-  const { agents, loading, refetch, toggleVerified } = useAllAgents();
-  const { user } = useAdminAuth();
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline" | "busy">("all");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [toggling, setToggling] = useState<string | null>(null);
-  const [revoking, setRevoking] = useState<string | null>(null);
+  const { agents, unassignedOrders, loading, refetch, toggleVerification, addAgent, grantBonus, assignOrderToAgent } = useAllAgents();
   const { toast } = useToast();
 
-  // Invite agent state
-  const [showInvitePanel, setShowInvitePanel] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteName, setInviteName] = useState("");
-  const [invitePhone, setInvitePhone] = useState("");
-  const [inviteVehicle, setInviteVehicle] = useState("bike");
-  const [inviting, setInviting] = useState(false);
+  const [showAddPanel, setShowAddPanel] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [bonusAgentId, setBonusAgentId] = useState<string | null>(null);
+  const [assignAgentId, setAssignAgentId] = useState<string | null>(null);
 
-  const filtered = agents.filter((a) => {
-    const matchSearch =
-      !search ||
-      a.full_name.toLowerCase().includes(search.toLowerCase()) ||
-      a.agent_code.toLowerCase().includes(search.toLowerCase()) ||
-      (a.email || "").toLowerCase().includes(search.toLowerCase());
-    const matchStatus =
-      statusFilter === "all" || a.availability_status === statusFilter;
-    return matchSearch && matchStatus;
-  });
+  // counts
+  const online  = agents.filter(a => a.availability_status === "online").length;
+  const busy    = agents.filter(a => a.availability_status === "busy").length;
+  const offline = agents.filter(a => a.availability_status === "offline").length;
 
-  const handleToggleVerified = async (agentId: string, current: boolean) => {
-    setToggling(agentId);
-    const { success } = await toggleVerified(agentId, !current);
-    if (success) {
-      toast({ title: current ? "Agent unverified" : "Agent verified" });
-    }
-    setToggling(null);
-  };
-
-  const handleInviteAgent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inviteEmail.trim() || !inviteName.trim()) return;
-    setInviting(true);
-
-    try {
-      // 1. Add to role_invitations so they auto-get 'agent' role on first Google login
-      const { error: inviteError } = await supabase.from("role_invitations").insert({
-        email: inviteEmail.trim().toLowerCase(),
-        role: "agent",
-        notes: `Agent: ${inviteName.trim()}`,
-        invited_by: user?.id,
-      });
-
-      if (inviteError && inviteError.code !== "23505") {
-        throw inviteError;
-      }
-
-      // 2. Pre-create delivery_agents record (will be linked when they first log in)
-      // Generate an agent code
-      const agentCode = "AG-" + Math.random().toString(36).substring(2, 6).toUpperCase();
-
-      // Check if a user with this email already exists in auth.users
-      // We do this by checking if user_roles has an entry (they may have logged in before)
-      // For simplicity, create the delivery_agents record with a placeholder user_id
-      // It will need to be linked manually or via trigger on first login
-      toast({
-        title: "Agent invited!",
-        description: `${inviteEmail} will get agent access on their first Google login. Agent code: ${agentCode}`,
-      });
-
-      setInviteEmail("");
-      setInviteName("");
-      setInvitePhone("");
-      setInviteVehicle("bike");
-      setShowInvitePanel(false);
-      await refetch();
-    } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast({
-        title: "Failed to invite agent",
-        description: error?.message || "An error occurred",
-        variant: "destructive",
-      });
-    }
-    setInviting(false);
-  };
-
-  const handleRevokeAccess = async (agentId: string, agentEmail: string | null) => {
-    setRevoking(agentId);
-    try {
-      // Revoke from role_invitations
-      if (agentEmail) {
-        await supabase.from("role_invitations").delete().eq("email", agentEmail);
-      }
-
-      // Mark as unverified
-      await supabase.from("delivery_agents").update({ is_verified: false }).eq("id", agentId);
-
-      toast({ title: "Agent access revoked", description: `${agentEmail || "Agent"} has been deactivated.` });
-      await refetch();
-    } catch {
-      toast({ title: "Failed to revoke access", variant: "destructive" });
-    }
-    setRevoking(null);
-  };
-
-  const stats = {
-    total: agents.length,
-    online: agents.filter((a) => a.availability_status === "online").length,
-    busy: agents.filter((a) => a.availability_status === "busy").length,
-    offline: agents.filter((a) => a.availability_status === "offline").length,
-    verified: agents.filter((a) => a.is_verified).length,
-  };
+  // toggle expand
+  const toggle = (id: string) => setExpandedId(prev => prev === id ? null : id);
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div className="p-6 space-y-6">
+
+      {/* ── Stats Row ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: "Total Agents", value: stats.total, color: "text-foreground" },
-          { label: "Online", value: stats.online, color: "text-emerald-400" },
-          { label: "Busy", value: stats.busy, color: "text-amber-400" },
-          { label: "Offline", value: stats.offline, color: "text-muted-foreground" },
-          { label: "Verified", value: stats.verified, color: "text-primary" },
-        ].map((s) => (
-          <div key={s.label} className="glass rounded-xl border border-border p-4 text-center">
-            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
+          { label: "Total Agents", value: agents.length, color: "text-blue-400" },
+          { label: "Online",  value: online,  color: "text-emerald-400" },
+          { label: "On Delivery", value: busy, color: "text-amber-400" },
+          { label: "Offline", value: offline, color: "text-zinc-400" },
+        ].map(s => (
+          <div key={s.label} className="glass rounded-xl p-4">
+            <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
+            <p className={cn("text-2xl font-bold", s.color)}>{s.value}</p>
           </div>
         ))}
       </div>
 
-      {/* Invite Agent Panel */}
-      <div className="glass rounded-2xl border border-border overflow-hidden">
+      {/* ── Toolbar ── */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-foreground">All Agents</h2>
         <button
-          onClick={() => setShowInvitePanel(!showInvitePanel)}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-secondary/20 transition-colors"
+          onClick={() => setShowAddPanel(v => !v)}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
-              <UserPlus className="w-4 h-4 text-primary" />
-            </div>
-            <div className="text-left">
-              <p className="text-sm font-semibold text-foreground">Invite New Agent</p>
-              <p className="text-xs text-muted-foreground">Add a Gmail account as a delivery agent</p>
-            </div>
-          </div>
-          {showInvitePanel ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          <UserPlus className="w-4 h-4" />
+          Add Agent
         </button>
-
-        {showInvitePanel && (
-          <form onSubmit={handleInviteAgent} className="px-5 pb-5 border-t border-border/50 pt-4 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input
-                  type="email"
-                  id="agent-invite-email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="agent@gmail.com *"
-                  required
-                  className="w-full pl-9 pr-4 py-3 rounded-xl bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-                />
-              </div>
-              <input
-                type="text"
-                value={inviteName}
-                onChange={(e) => setInviteName(e.target.value)}
-                placeholder="Full Name *"
-                required
-                className="w-full px-4 py-3 rounded-xl bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-              <input
-                type="tel"
-                value={invitePhone}
-                onChange={(e) => setInvitePhone(e.target.value)}
-                placeholder="Phone (optional)"
-                className="w-full px-4 py-3 rounded-xl bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-              <select
-                value={inviteVehicle}
-                onChange={(e) => setInviteVehicle(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-              >
-                <option value="bike">Bike</option>
-                <option value="car">Car</option>
-                <option value="walk">On foot</option>
-              </select>
-            </div>
-            <button
-              type="submit"
-              id="invite-agent-btn"
-              disabled={inviting || !inviteEmail.trim() || !inviteName.trim()}
-              className="h-11 px-6 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center gap-2"
-            >
-              {inviting ? (
-                <div className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <><UserPlus className="w-4 h-4" /> Invite Agent</>
-              )}
-            </button>
-          </form>
-        )}
       </div>
 
-      {/* Filters */}
-      <div className="glass rounded-2xl border border-border p-4 flex flex-wrap gap-3">
-        <div className="flex-1 min-w-48 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, code, email..."
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-          />
-        </div>
+      {/* ── Add Agent Panel ── */}
+      <AnimatePresence>
+        {showAddPanel && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <AddAgentForm
+              onAdd={async (params) => {
+                const result = await addAgent(params);
+                if (result.success) {
+                  toast({ title: "Magic link sent!", description: `Login link sent to ${params.email}. Agent will appear after they log in.` });
+                  setShowAddPanel(false);
+                } else {
+                  toast({ title: "Failed", description: result.error, variant: "destructive" });
+                }
+              }}
+              onCancel={() => setShowAddPanel(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        <div className="flex gap-2">
-          {(["all", "online", "busy", "offline"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={cn(
-                "px-3 py-2 rounded-xl text-xs font-medium transition-all",
-                statusFilter === s
-                  ? "bg-primary text-primary-foreground"
-                  : "glass border border-border text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
+      {/* ── Unassigned Orders Banner ── */}
+      {unassignedOrders.length > 0 && (
+        <div className="glass border border-amber-400/30 rounded-xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Package className="w-5 h-5 text-amber-400" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">{unassignedOrders.length} Unassigned Delivery {unassignedOrders.length === 1 ? "Order" : "Orders"}</p>
+              <p className="text-xs text-muted-foreground">Expand an agent below to assign</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Agent List ── */}
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        </div>
+      ) : agents.length === 0 ? (
+        <div className="glass rounded-xl p-12 text-center">
+          <UserPlus className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          <p className="text-muted-foreground">No agents yet. Add one above.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {agents.map(agent => (
+            <AgentRow
+              key={agent.id}
+              agent={agent}
+              expanded={expandedId === agent.id}
+              onToggle={() => toggle(agent.id)}
+              onToggleVerify={async () => {
+                const ok = await toggleVerification(agent.id, agent.is_verified);
+                if (ok) toast({ title: agent.is_verified ? "Agent unverified" : "Agent verified" });
+              }}
+              onGiveBonus={() => setBonusAgentId(agent.id)}
+              onAssignOrder={() => setAssignAgentId(agent.id)}
+              unassignedOrders={unassignedOrders}
+              onAssign={async (orderId) => {
+                const ok = await assignOrderToAgent(orderId, agent.id, agent.user_id);
+                if (ok) toast({ title: "Order assigned!", description: `Order sent to ${agent.full_name}` });
+                else toast({ title: "Assign failed", variant: "destructive" });
+              }}
+            />
           ))}
         </div>
+      )}
 
+      {/* ── Bonus Modal ── */}
+      <AnimatePresence>
+        {bonusAgentId && (
+          <BonusModal
+            agent={agents.find(a => a.id === bonusAgentId)!}
+            onGrant={async (amount, notes) => {
+              const ok = await grantBonus(bonusAgentId, amount, notes);
+              if (ok) toast({ title: "Bonus granted! 🎉", description: `₵${amount} sent to agent` });
+              else toast({ title: "Failed to grant bonus", variant: "destructive" });
+              setBonusAgentId(null);
+            }}
+            onClose={() => setBonusAgentId(null)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Add Agent Form ────────────────────────────────────────────────────────────
+function AddAgentForm({ onAdd, onCancel }: {
+  onAdd: (p: { full_name: string; phone: string; email: string; vehicle: string; agent_code: string }) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [form, setForm] = useState({
+    full_name: "", phone: "", email: "", vehicle: "bike",
+    agent_code: genAgentCode(),
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async () => {
+    if (!form.full_name.trim() || !form.email.trim()) return;
+    setSaving(true);
+    await onAdd(form);
+    setSaving(false);
+  };
+
+  return (
+    <div className="glass border border-primary/30 rounded-xl p-6 space-y-4">
+      <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+        <UserPlus className="w-4 h-4 text-primary" /> New Agent
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Full Name" value={form.full_name} onChange={v => set("full_name", v)} placeholder="e.g. Kwame Mensah" icon={<UserPlus className="w-4 h-4" />} />
+        <Field label="Phone" value={form.phone} onChange={v => set("phone", v)} placeholder="+233 XX XXX XXXX" icon={<Phone className="w-4 h-4" />} />
+        <Field label="Email" value={form.email} onChange={v => set("email", v)} placeholder="agent@email.com" icon={<Mail className="w-4 h-4" />} type="email" />
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground font-medium">Vehicle</label>
+          <select
+            value={form.vehicle}
+            onChange={e => set("vehicle", e.target.value)}
+            className="w-full px-3 py-2.5 rounded-lg bg-secondary border border-border text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {["bike", "motorbike", "car", "van", "truck"].map(v => (
+              <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground font-medium">Agent Code</label>
+          <div className="flex gap-2">
+            <input
+              value={form.agent_code}
+              onChange={e => set("agent_code", e.target.value.toUpperCase())}
+              className="flex-1 px-3 py-2.5 rounded-lg bg-secondary border border-border text-foreground text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <button
+              onClick={() => set("agent_code", genAgentCode())}
+              className="px-3 rounded-lg bg-secondary border border-border text-muted-foreground hover:text-foreground text-xs transition-colors"
+            >↻</button>
+          </div>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">A login link will be emailed to the agent. They'll appear in the list once they log in.</p>
+      <div className="flex gap-3 pt-1">
+        <button onClick={onCancel} className="flex-1 h-10 rounded-lg border border-border text-muted-foreground text-sm hover:bg-secondary transition-colors">Cancel</button>
         <button
-          onClick={refetch}
-          className="p-2.5 rounded-xl bg-secondary border border-border text-muted-foreground hover:text-foreground"
+          onClick={submit}
+          disabled={saving || !form.full_name.trim() || !form.email.trim()}
+          className="flex-1 h-10 rounded-lg bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
-          <RefreshCw className="w-4 h-4" />
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          Send Login Link
         </button>
       </div>
+    </div>
+  );
+}
 
-      {/* Agent List */}
-      <div className="glass rounded-2xl border border-border overflow-hidden">
-        <div className="px-5 py-3 border-b border-border">
-          <p className="text-sm font-medium text-foreground">{filtered.length} agents</p>
+// ── Agent Row ─────────────────────────────────────────────────────────────────
+function AgentRow({
+  agent, expanded, onToggle, onToggleVerify, onGiveBonus, onAssignOrder,
+  unassignedOrders, onAssign,
+}: {
+  agent: AdminAgent; expanded: boolean;
+  onToggle: () => void; onToggleVerify: () => void;
+  onGiveBonus: () => void; onAssignOrder: () => void;
+  unassignedOrders: UnassignedDeliveryOrder[];
+  onAssign: (orderId: string) => Promise<void>;
+}) {
+  const [assigning, setAssigning] = useState(false);
+
+  const statusLabel = agent.current_order_id ? "on_delivery" : agent.availability_status;
+  const displayStatus = {
+    on_delivery: "On Delivery",
+    online: "Online",
+    offline: "Offline",
+    busy: "Busy",
+    unknown: "Unknown",
+  }[statusLabel] ?? "Unknown";
+
+  const statusColorKey = agent.current_order_id ? "busy" : agent.availability_status;
+
+  return (
+    <div className="glass rounded-xl overflow-hidden">
+      {/* Row header */}
+      <button onClick={onToggle} className="w-full flex items-center gap-4 p-4 hover:bg-secondary/30 transition-colors">
+        {/* Avatar */}
+        <div className="relative shrink-0">
+          <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
+            {agent.full_name.charAt(0).toUpperCase()}
+          </div>
+          <span className={cn("absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background", statusDot[statusColorKey])} />
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <div className="flex-1 text-left min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-foreground truncate">{agent.full_name}</p>
+            {agent.is_verified && <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
           </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {filtered.length === 0 && (
-              <div className="py-12 text-center text-muted-foreground text-sm">No agents found</div>
-            )}
-            {filtered.map((agent) => {
-              const expanded = expandedId === agent.id;
-              const statusColor = {
-                online: "bg-emerald-400",
-                busy: "bg-amber-400",
-                offline: "bg-muted-foreground",
-              }[agent.availability_status || "offline"] || "bg-muted-foreground";
+          <p className="text-xs text-muted-foreground">{agent.agent_code} · {agent.vehicle}</p>
+        </div>
 
-              return (
-                <div key={agent.id} className="hover:bg-secondary/20 transition-colors">
-                  <div
-                    className="flex items-center gap-4 px-5 py-3.5 cursor-pointer"
-                    onClick={() => setExpandedId(expanded ? null : agent.id)}
-                  >
-                    {/* Avatar */}
-                    <div className="relative shrink-0">
-                      {agent.avatar_url ? (
-                        <img src={agent.avatar_url} alt={agent.full_name} className="w-10 h-10 rounded-xl object-cover" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-                          {getInitials(agent.full_name)}
-                        </div>
-                      )}
-                      <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${statusColor}`} />
-                    </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", statusColors[statusColorKey])}>
+            {displayStatus}
+          </span>
+          {agent.bonus_total > 0 && (
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-400/15 text-yellow-400">
+              +₵{agent.bonus_total.toFixed(0)} bonus
+            </span>
+          )}
+          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
+      </button>
 
-                    {/* Name + code */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-foreground">{agent.full_name}</p>
-                        {agent.is_verified && (
-                          <ShieldCheck className="w-3.5 h-3.5 text-primary shrink-0" />
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>#{agent.agent_code}</span>
-                        <span>•</span>
-                        <VehicleIcon vehicle={agent.vehicle} />
-                        <span>{agent.vehicle}</span>
-                        {agent.email && <><span>•</span><span className="truncate max-w-32">{agent.email}</span></>}
-                      </div>
-                    </div>
-
-                    {/* Status */}
-                    <AvailabilityBadge status={agent.availability_status} />
-
-                    {/* Stats */}
-                    <div className="text-right shrink-0 hidden md:block">
-                      <p className="text-sm font-bold text-emerald-400">{formatCurrency(agent.total_earnings || 0)}</p>
-                      <p className="text-xs text-muted-foreground">{agent.total_deliveries || 0} deliveries</p>
-                    </div>
-
-                    {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  </div>
-
-                  {/* Expanded detail */}
-                  {expanded && (
-                    <div className="px-5 pb-4 border-t border-border/50 pt-3 space-y-4">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <InfoCard label="Total Deliveries" value={String(agent.total_deliveries || 0)} icon={TrendingUp} />
-                        <InfoCard label="Total Earnings" value={formatCurrency(agent.total_earnings || 0)} icon={TrendingUp} />
-                        <InfoCard label="Avg Rating" value={agent.average_rating ? `${agent.average_rating.toFixed(1)} ⭐` : "N/A"} icon={Star} />
-                        <InfoCard label="Last Seen" value={agent.last_seen ? formatRelativeTime(agent.last_seen) : "Never"} icon={RefreshCw} />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <p className="text-muted-foreground">Email (Gmail)</p>
-                          <p className="text-foreground font-medium">{agent.email || "—"}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Phone</p>
-                          <p className="text-foreground">{agent.phone || "—"}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Registered</p>
-                          <p className="text-foreground">{formatDate(agent.created_at)}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Vehicle</p>
-                          <p className="text-foreground capitalize">{agent.vehicle}</p>
-                        </div>
-                      </div>
-
-                      {/* Admin Actions */}
-                      <div className="flex items-center gap-3 pt-1 flex-wrap">
-                        <button
-                          onClick={() => handleToggleVerified(agent.id, agent.is_verified)}
-                          disabled={toggling === agent.id}
-                          className={cn(
-                            "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all",
-                            agent.is_verified
-                              ? "bg-destructive/15 text-destructive hover:bg-destructive/25"
-                              : "bg-primary/15 text-primary hover:bg-primary/25",
-                            "disabled:opacity-50"
-                          )}
-                        >
-                          <Shield className="w-3.5 h-3.5" />
-                          {toggling === agent.id ? "..." : agent.is_verified ? "Revoke Verification" : "Verify Agent"}
-                        </button>
-
-                        <button
-                          onClick={() => handleRevokeAccess(agent.id, agent.email)}
-                          disabled={revoking === agent.id}
-                          className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium bg-destructive/15 text-destructive hover:bg-destructive/25 transition-all disabled:opacity-50"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          {revoking === agent.id ? "Revoking..." : "Revoke Access"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+      {/* Expanded detail */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden border-t border-border"
+          >
+            <div className="p-4 space-y-4">
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-secondary/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Deliveries</p>
+                  <p className="text-lg font-bold text-foreground">{agent.total_deliveries}</p>
                 </div>
-              );
-            })}
-          </div>
+                <div className="bg-secondary/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Earnings</p>
+                  <p className="text-lg font-bold text-foreground">₵{Number(agent.total_earnings).toFixed(0)}</p>
+                </div>
+                <div className="bg-secondary/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Rating</p>
+                  <p className="text-lg font-bold text-foreground">{Number(agent.average_rating).toFixed(1)}⭐</p>
+                </div>
+              </div>
+
+              {/* Contact */}
+              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                {agent.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{agent.phone}</span>}
+                {agent.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{agent.email}</span>}
+                <span className="flex items-center gap-1"><Car className="w-3 h-3" />{agent.vehicle}</span>
+              </div>
+
+              {/* Current order */}
+              {agent.current_order_id && (
+                <div className="flex items-center gap-3 bg-amber-400/10 border border-amber-400/30 rounded-lg p-3">
+                  <Truck className="w-4 h-4 text-amber-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-amber-400">Currently delivering</p>
+                    <p className="text-xs text-foreground truncate">{agent.current_order_address}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={onToggleVerify}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                    agent.is_verified
+                      ? "bg-destructive/15 text-destructive hover:bg-destructive/25"
+                      : "bg-emerald-400/15 text-emerald-400 hover:bg-emerald-400/25"
+                  )}
+                >
+                  {agent.is_verified ? <ShieldOff className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
+                  {agent.is_verified ? "Unverify" : "Verify"}
+                </button>
+
+                <button
+                  onClick={onGiveBonus}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-yellow-400/15 text-yellow-400 hover:bg-yellow-400/25 transition-colors"
+                >
+                  <Gift className="w-3.5 h-3.5" /> Give Bonus
+                </button>
+              </div>
+
+              {/* Assign Order */}
+              {unassignedOrders.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                    <ClipboardList className="w-3.5 h-3.5" /> Assign a pending order
+                  </p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {unassignedOrders.map(order => (
+                      <div key={order.id} className="flex items-center gap-3 bg-secondary/40 rounded-lg p-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-foreground truncate">{order.delivery_address}</p>
+                          {order.pickup_address && (
+                            <p className="text-xs text-muted-foreground truncate">From: {order.pickup_address}</p>
+                          )}
+                          {order.total_fee && (
+                            <p className="text-xs text-primary font-semibold">₵{Number(order.total_fee).toFixed(2)}</p>
+                          )}
+                        </div>
+                        <button
+                          disabled={assigning}
+                          onClick={async () => {
+                            setAssigning(true);
+                            await onAssign(order.id);
+                            setAssigning(false);
+                          }}
+                          className="shrink-0 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        >
+                          {assigning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Assign"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Bonus history */}
+              {agent.bonuses.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                    <Gift className="w-3.5 h-3.5" /> Bonus History
+                  </p>
+                  <div className="space-y-1">
+                    {agent.bonuses.slice(0, 5).map(b => (
+                      <div key={b.id} className="flex items-center justify-between text-xs bg-secondary/30 rounded-lg px-3 py-2">
+                        <span className="text-muted-foreground">{b.notes || "Bonus"}</span>
+                        <span className="font-semibold text-yellow-400">+₵{Number(b.amount).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Bonus Modal ───────────────────────────────────────────────────────────────
+function BonusModal({ agent, onGrant, onClose }: {
+  agent: AdminAgent;
+  onGrant: (amount: number, notes: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const n = parseFloat(amount);
+    if (!n || n <= 0) return;
+    setSaving(true);
+    await onGrant(n, notes);
+    setSaving(false);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="glass rounded-2xl p-6 w-full max-w-sm space-y-4"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-yellow-400/20 flex items-center justify-center">
+            <Gift className="w-5 h-5 text-yellow-400" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-foreground">Give Bonus</h3>
+            <p className="text-xs text-muted-foreground">{agent.full_name}</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <Field label="Amount (₵)" value={amount} onChange={setAmount} placeholder="e.g. 50" type="number" icon={<span className="text-sm font-bold">₵</span>} />
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground font-medium">Notes (optional)</label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="e.g. Outstanding performance this week"
+              className="w-full h-20 px-3 py-2 rounded-lg bg-secondary border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 h-10 rounded-lg border border-border text-muted-foreground text-sm hover:bg-secondary transition-colors">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={saving || !amount || parseFloat(amount) <= 0}
+            className="flex-1 h-10 rounded-lg bg-yellow-400 text-black text-sm font-semibold flex items-center justify-center gap-2 hover:bg-yellow-300 disabled:opacity-50 transition-colors"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
+            Grant Bonus
+          </button>
+        </div>
+      </motion.div>
     </motion.div>
   );
 }
 
-function AvailabilityBadge({ status }: { status: string | null }) {
-  if (status === "online") return <span className="badge-online shrink-0"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />Online</span>;
-  if (status === "busy") return <span className="badge-busy shrink-0"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" />Busy</span>;
-  return <span className="badge-offline shrink-0"><span className="w-1.5 h-1.5 rounded-full bg-muted-foreground" />Offline</span>;
-}
-
-function VehicleIcon({ vehicle }: { vehicle: string }) {
-  if (vehicle === "bike") return <Bike className="w-3 h-3" />;
-  if (vehicle === "car") return <Car className="w-3 h-3" />;
-  return <PersonStanding className="w-3 h-3" />;
-}
-
-function InfoCard({ label, value, icon: Icon }: { label: string; value: string; icon: React.ElementType }) {
+// ── Field helper ──────────────────────────────────────────────────────────────
+function Field({ label, value, onChange, placeholder, type = "text", icon }: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; type?: string; icon?: React.ReactNode;
+}) {
   return (
-    <div className="glass rounded-xl p-3 border border-border">
-      <p className="text-[10px] text-muted-foreground">{label}</p>
-      <p className="text-sm font-semibold text-foreground mt-0.5">{value}</p>
+    <div className="space-y-1">
+      <label className="text-xs text-muted-foreground font-medium">{label}</label>
+      <div className="relative">
+        {icon && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{icon}</span>}
+        <input
+          type={type}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={cn(
+            "w-full px-3 py-2.5 rounded-lg bg-secondary border border-border text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary",
+            icon && "pl-8"
+          )}
+        />
+      </div>
     </div>
   );
 }
