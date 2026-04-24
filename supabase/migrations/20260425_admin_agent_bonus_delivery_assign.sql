@@ -22,6 +22,15 @@ CREATE POLICY "admin_all_bonuses" ON public.agent_bonuses
 ALTER TABLE public.delivery_orders ADD COLUMN IF NOT EXISTS agent_user_id uuid REFERENCES auth.users(id);
 CREATE INDEX IF NOT EXISTS idx_delivery_orders_agent_user_id ON public.delivery_orders(agent_user_id);
 
--- 3. Enable realtime for delivery_orders (required for agent live updates)
-ALTER PUBLICATION supabase_realtime ADD TABLE public.delivery_orders;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.agent_bonuses;
+-- 3. Enable realtime for delivery_orders and agent_bonuses (safe block)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'delivery_orders') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.delivery_orders;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'agent_bonuses') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.agent_bonuses;
+  END IF;
+END
+$$;
